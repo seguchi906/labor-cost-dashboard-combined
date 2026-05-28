@@ -27,7 +27,14 @@ exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'GET') {
       const rows = await sql`SELECT value FROM app_data WHERE key = ${KEY}`
-      const empty = { projects: [], monthlyCosts: [], completedCosts: [], updatedAt: null }
+      const empty = {
+        projects: [],
+        monthlyCosts: [],
+        completedCosts: [],
+        lastImportedMonth: null,
+        lastMonthlyUpdatedNumbers: [],
+        updatedAt: null,
+      }
       return {
         statusCode: 200,
         headers,
@@ -41,6 +48,10 @@ exports.handler = async (event) => {
         projects: Array.isArray(data.projects) ? data.projects : [],
         monthlyCosts: Array.isArray(data.monthlyCosts) ? data.monthlyCosts : [],
         completedCosts: Array.isArray(data.completedCosts) ? data.completedCosts : [],
+        lastImportedMonth: data.lastImportedMonth || null,
+        lastMonthlyUpdatedNumbers: Array.isArray(data.lastMonthlyUpdatedNumbers)
+          ? data.lastMonthlyUpdatedNumbers
+          : [],
         updatedAt: new Date().toISOString(),
       }
 

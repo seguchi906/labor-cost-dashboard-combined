@@ -11,6 +11,7 @@ const functionHandlers = {
   '/api/data': require('./netlify/functions/data').handler,
   '/api/contracts': require('./netlify/functions/contracts').handler,
   '/api/outsourcing': require('./netlify/functions/outsourcing').handler,
+  '/api/project-names': require('./netlify/functions/project-names').handler,
 }
 
 function loadEnv(filePath) {
