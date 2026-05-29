@@ -46,12 +46,6 @@ button,input{font:inherit}
 .num{text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
 .muted{color:#829ab1}
 .empty-state{padding:58px 20px;text-align:center;color:#829ab1;font-size:15px}
-.month-filters{padding:10px 16px;border-bottom:1px solid #e4e7eb;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.month-filter-label{font-size:12px;color:#66788a;font-weight:700;white-space:nowrap;margin-right:2px}
-.month-chip{border:1px solid #bcccdc;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;background:#fff;transition:background .1s,color .1s,border-color .1s}
-.month-chip.on{background:#0e7490;border-color:#0e7490;color:#fff}
-.month-chip.off{background:#f1f5f9;border-color:#cbd5e1;color:#94a3b8}
-.dt-excluded{color:#b0bec5;font-style:italic}
 .expand-btn{background:none;border:1px solid #bcccdc;border-radius:4px;color:#52606d;cursor:pointer;font-size:11px;line-height:1;padding:3px 6px;margin-right:6px;vertical-align:middle;transition:background .1s}
 .expand-btn:hover{background:#e4e7eb}
 .expand-btn.open{background:#e0f2fe;border-color:#7dd3fc;color:#0369a1}
@@ -90,7 +84,6 @@ const state = {
   projectNames: {},
   lastImportedMonth: null,
   expandedNumbers: new Set(),
-  disabledMonths: new Set(),
   search: '',
   loading: true,
   loadingNames: true,
@@ -210,32 +203,9 @@ function getAllBusinessNumbers() {
 }
 
 function getLaborTotal(number) {
-  const monthly = state.monthlyCosts
-    .filter(item => !state.disabledMonths.has(item.month))
-    .reduce((sum, item) => sum + Number(item.costsByNumber?.[number] || 0), 0)
+  const monthly = state.monthlyCosts.reduce((sum, item) => sum + Number(item.costsByNumber?.[number] || 0), 0)
   const fixed = Number(state.completedCostsByNumber[number] || 0)
   return monthly + fixed
-}
-
-function toggleMonth(month) {
-  if (state.disabledMonths.has(month)) {
-    state.disabledMonths.delete(month)
-  } else {
-    state.disabledMonths.add(month)
-  }
-  render()
-}
-
-function renderMonthFilters() {
-  if (!state.monthlyCosts.length) return ''
-  const chips = [...state.monthlyCosts]
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .map(item => {
-      const on = !state.disabledMonths.has(item.month)
-      return `<button class="month-chip ${on ? 'on' : 'off'}" data-month="${escapeAttr(item.month)}">${monthLabel(item.month)}</button>`
-    })
-    .join('')
-  return `<div class="month-filters"><span class="month-filter-label">取込月:</span>${chips}</div>`
 }
 
 function toggleExpand(number) {
@@ -249,7 +219,7 @@ function toggleExpand(number) {
 
 function renderDetailRows(number) {
   const months = state.monthlyCosts
-    .map(item => ({ month: item.month, amount: Number(item.costsByNumber?.[number] || 0), disabled: state.disabledMonths.has(item.month) }))
+    .map(item => ({ month: item.month, amount: Number(item.costsByNumber?.[number] || 0) }))
     .filter(item => item.amount > 0)
   const fixed = Number(state.completedCostsByNumber[number] || 0)
   const total = getLaborTotal(number)
@@ -259,8 +229,8 @@ function renderDetailRows(number) {
   }
 
   const monthRows = months.map(item => `
-    <tr${item.disabled ? ' class="dt-excluded"' : ''}>
-      <td class="dt-month">${monthLabel(item.month)}${item.disabled ? ' <span style="font-size:11px">(除外中)</span>' : ''}</td>
+    <tr>
+      <td class="dt-month">${monthLabel(item.month)}</td>
       <td class="num">${formatMoney(item.amount)}円</td>
     </tr>
   `).join('')
@@ -571,7 +541,6 @@ function render() {
             <button id="save-btn" class="btn btn-primary" ${state.saving ? 'disabled' : ''}>${state.saving ? '保存中' : '保存'}</button>
           </div>
         </div>
-        ${renderMonthFilters()}
         ${renderNotice()}
         <div class="result-line">${businesses.length}件 表示中</div>
         ${renderTable(businesses)}
@@ -640,9 +609,6 @@ function bindEvents() {
   document.getElementById('search-clear')?.addEventListener('click', () => {
     state.search = ''
     render()
-  })
-  document.querySelectorAll('[data-month]').forEach(chip => {
-    chip.addEventListener('click', () => toggleMonth(chip.dataset.month))
   })
   document.querySelectorAll('[data-expand]').forEach(btn => {
     btn.addEventListener('click', () => toggleExpand(btn.dataset.expand))
