@@ -355,10 +355,13 @@ async function loadData() {
     const response = await fetch(`${API_URL}?${Date.now()}`)
     if (!response.ok) throw new Error('remote unavailable')
     const data = sanitizeData(await response.json())
-    const localData = !data.monthlyCosts.length && !Object.keys(data.completedCostsByNumber).length ? loadLocalData() : null
-    applyData(localData || data)
-    state.syncText = localData
-      ? 'ローカルデータ'
+    const localData = loadLocalData()
+    const neonEmpty = !data.monthlyCosts.length && !Object.keys(data.completedCostsByNumber).length
+    const localNewer = localData?.updatedAt && data.updatedAt && localData.updatedAt > data.updatedAt
+    const useLocal = neonEmpty || localNewer
+    applyData(useLocal && localData ? localData : data)
+    state.syncText = useLocal && localData
+      ? `ローカルデータ（未保存あり）`
       : data.updatedAt ? `保存済み ${new Date(data.updatedAt).toLocaleString('ja-JP')}` : '保存データなし'
   } catch (error) {
     const data = loadLocalData()
