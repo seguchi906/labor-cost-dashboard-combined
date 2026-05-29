@@ -196,7 +196,12 @@ function getDisplayName(number) {
 }
 
 function getAllBusinessNumbers() {
-  const numbers = new Set(Object.keys(state.projectNames))
+  const fromNames = Object.keys(state.projectNames)
+  if (fromNames.length > 0) {
+    return fromNames.sort((a, b) => a.localeCompare(b, 'ja'))
+  }
+  // 他アプリ取得失敗時のフォールバック: CSV に登場した番号を表示
+  const numbers = new Set()
   state.monthlyCosts.forEach(item => Object.keys(item.costsByNumber || {}).forEach(n => numbers.add(n)))
   Object.keys(state.completedCostsByNumber).forEach(n => numbers.add(n))
   return [...numbers].sort((a, b) => a.localeCompare(b, 'ja'))
