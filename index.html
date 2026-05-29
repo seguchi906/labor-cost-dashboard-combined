@@ -46,6 +46,18 @@ button,input{font:inherit}
 .num{text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
 .muted{color:#829ab1}
 .empty-state{padding:58px 20px;text-align:center;color:#829ab1;font-size:15px}
+.expand-btn{background:none;border:1px solid #bcccdc;border-radius:4px;color:#52606d;cursor:pointer;font-size:11px;line-height:1;padding:3px 6px;margin-right:6px;vertical-align:middle;transition:background .1s}
+.expand-btn:hover{background:#e4e7eb}
+.expand-btn.open{background:#e0f2fe;border-color:#7dd3fc;color:#0369a1}
+.detail-row td{background:#f0f9ff;padding:0;border-bottom:1px solid #bae6fd}
+.detail-row:hover td{background:#e0f2fe}
+.detail-table{width:100%;border-collapse:collapse;font-size:12px}
+.detail-table td{padding:7px 14px 7px 32px;color:#334e68;border-bottom:1px solid #dde8f0}
+.detail-table tr:last-child td{border-bottom:none}
+.detail-table .dt-month{color:#52606d}
+.detail-table .dt-fixed{color:#065f46;font-weight:700}
+.detail-table .dt-total{font-weight:850;color:#0f766e;border-top:1px solid #7dd3fc;background:#e0f2fe}
+.detail-table td.num{padding-right:14px}
 .import-log{margin:14px 16px 16px;background:#f8fafc;border:1px solid #e4e7eb;border-radius:6px;padding:11px 12px;color:#52606d;font-size:13px;line-height:1.7;max-height:150px;overflow:auto}
 @media(max-width:900px){
   .app-header{padding:0 16px}
@@ -71,6 +83,7 @@ const state = {
   completedCostsByNumber: {},
   projectNames: {},
   lastImportedMonth: null,
+  expandedNumbers: new Set(),
   search: '',
   loading: true,
   loadingNames: true,
@@ -193,6 +206,60 @@ function getLaborTotal(number) {
   const monthly = state.monthlyCosts.reduce((sum, item) => sum + Number(item.costsByNumber?.[number] || 0), 0)
   const fixed = Number(state.completedCostsByNumber[number] || 0)
   return monthly + fixed
+}
+
+function toggleExpand(number) {
+  if (state.expandedNumbers.has(number)) {
+    state.expandedNumbers.delete(number)
+  } else {
+    state.expandedNumbers.add(number)
+  }
+  render()
+}
+
+function renderDetailRows(number) {
+  const months = state.monthlyCosts
+    .map(item => ({ month: item.month, amount: Number(item.costsByNumber?.[number] || 0) }))
+    .filter(item => item.amount > 0)
+  const fixed = Number(state.completedCostsByNumber[number] || 0)
+  const total = getLaborTotal(number)
+
+  if (!months.length && !fixed) {
+    return `<tr class="detail-row"><td colspan="3"><table class="detail-table"><tr><td colspan="2" style="color:#829ab1">データなし</td></tr></table></td></tr>`
+  }
+
+  const monthRows = months.map(item => `
+    <tr>
+      <td class="dt-month">${monthLabel(item.month)}</td>
+      <td class="num">${formatMoney(item.amount)}円</td>
+    </tr>
+  `).join('')
+
+  const fixedRow = fixed ? `
+    <tr>
+      <td class="dt-fixed">完了済み固定費</td>
+      <td class="num dt-fixed">${formatMoney(fixed)}円</td>
+    </tr>
+  ` : ''
+
+  const totalRow = `
+    <tr class="dt-total">
+      <td>合計</td>
+      <td class="num">${formatMoney(total)}円</td>
+    </tr>
+  `
+
+  return `
+    <tr class="detail-row">
+      <td colspan="3">
+        <table class="detail-table">
+          ${monthRows}
+          ${fixedRow}
+          ${totalRow}
+        </table>
+      </td>
+    </tr>
+  `
 }
 
 function getSummary() {
@@ -514,13 +581,20 @@ function renderTable(businesses) {
           </tr>
         </thead>
         <tbody>
-          ${businesses.map(number => `
-            <tr>
-              <td><strong>${escapeHtml(number)}</strong></td>
-              <td>${escapeHtml(getDisplayName(number))}</td>
-              <td class="num">${formatMoney(getLaborTotal(number))}円</td>
-            </tr>
-          `).join('')}
+          ${businesses.map(number => {
+            const open = state.expandedNumbers.has(number)
+            return `
+              <tr>
+                <td>
+                  <button class="expand-btn ${open ? 'open' : ''}" data-expand="${escapeAttr(number)}">${open ? '▼' : '▶'}</button>
+                  <strong>${escapeHtml(number)}</strong>
+                </td>
+                <td>${escapeHtml(getDisplayName(number))}</td>
+                <td class="num">${formatMoney(getLaborTotal(number))}円</td>
+              </tr>
+              ${open ? renderDetailRows(number) : ''}
+            `
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -535,6 +609,9 @@ function bindEvents() {
   document.getElementById('search-clear')?.addEventListener('click', () => {
     state.search = ''
     render()
+  })
+  document.querySelectorAll('[data-expand]').forEach(btn => {
+    btn.addEventListener('click', () => toggleExpand(btn.dataset.expand))
   })
   document.getElementById('monthly-input')?.addEventListener('change', importMonthly)
   document.getElementById('completed-input')?.addEventListener('change', importCompletedCosts)
