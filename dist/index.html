@@ -16,7 +16,7 @@ button,input{font:inherit}
 .brand-subtitle{font-size:13px;opacity:.86;white-space:nowrap}
 .sync-box{text-align:right;font-size:12px;line-height:1.6;white-space:nowrap;opacity:.9}
 .app-main{max-width:1440px;margin:0 auto;padding:24px}
-.summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:18px}
 .summary-tile{background:#fff;border:1px solid #e4e7eb;border-radius:8px;padding:14px 16px;min-width:0}
 .summary-label{font-size:12px;color:#66788a;font-weight:700;margin-bottom:6px}
 .summary-value{font-size:24px;font-weight:850;line-height:1;color:#102a43;font-variant-numeric:tabular-nums}
@@ -24,9 +24,6 @@ button,input{font:inherit}
 .workspace{background:#fff;border:1px solid #d9e2ec;border-radius:8px;overflow:hidden}
 .toolbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid #e4e7eb;flex-wrap:wrap}
 .toolbar-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:0}
-.tabs{display:flex;gap:6px;flex-wrap:wrap}
-.tab{border:1px solid #bcccdc;background:#fff;color:#334e68;border-radius:6px;padding:9px 16px;font-size:14px;font-weight:800;cursor:pointer}
-.tab.active{background:#155e75;border-color:#155e75;color:#fff}
 .search-box{display:flex;align-items:center;border:1px solid #bcccdc;border-radius:6px;background:#fff;min-width:300px;max-width:460px;flex:1}
 .search-box:focus-within{border-color:#0e7490;box-shadow:0 0 0 3px rgba(14,116,144,.14)}
 .search-input{border:none;outline:none;background:transparent;padding:9px 11px;font-size:14px;width:100%}
@@ -48,11 +45,6 @@ button,input{font:inherit}
 .ledger-table tr:hover td{background:#f8fafc}
 .num{text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
 .muted{color:#829ab1}
-.status-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:850;white-space:nowrap}
-.status-active{background:#e0f2fe;color:#075985}
-.status-completed{background:#dcfce7;color:#166534}
-.status-added{background:#dcfce7;color:#166534}
-.status-none{background:#f1f5f9;color:#475569}
 .empty-state{padding:58px 20px;text-align:center;color:#829ab1;font-size:15px}
 .import-log{margin:14px 16px 16px;background:#f8fafc;border:1px solid #e4e7eb;border-radius:6px;padding:11px 12px;color:#52606d;font-size:13px;line-height:1.7;max-height:150px;overflow:auto}
 @media(max-width:900px){
@@ -75,13 +67,10 @@ const API_URL = '/api/data'
 const PROJECT_NAMES_API_URL = '/api/project-names'
 
 const state = {
-  projects: [],
   monthlyCosts: [],
-  completedCosts: [],
+  completedCostsByNumber: {},
   projectNames: {},
   lastImportedMonth: null,
-  lastMonthlyUpdatedNumbers: [],
-  view: 'active',
   search: '',
   loading: true,
   loadingNames: true,
@@ -187,113 +176,65 @@ function addLog(message) {
   state.log = [`${time} ${message}`, ...state.log].slice(0, 8)
 }
 
-function getActiveNumbers() {
-  return new Set(state.projects.map(project => project.number))
+function getDisplayName(number) {
+  const fetched = state.projectNames[number]
+  if (fetched && fetched !== number) return fetched
+  return number
 }
 
-function getDisplayName(item) {
-  const fetchedName = state.projectNames[item.number]
-  if (fetchedName && fetchedName !== item.number) return fetchedName
-  if (item.name && item.name !== item.number) return item.name
-  return item.number
+function getAllBusinessNumbers() {
+  const numbers = new Set(Object.keys(state.projectNames))
+  state.monthlyCosts.forEach(item => Object.keys(item.costsByNumber || {}).forEach(n => numbers.add(n)))
+  Object.keys(state.completedCostsByNumber).forEach(n => numbers.add(n))
+  return [...numbers].sort((a, b) => a.localeCompare(b, 'ja'))
 }
 
-function getVisibleCompletedCosts() {
-  const activeNumbers = getActiveNumbers()
-  return state.completedCosts.filter(item => !activeNumbers.has(item.number))
-}
-
-function getDuplicateCompletedCount() {
-  const activeNumbers = getActiveNumbers()
-  return state.completedCosts.filter(item => activeNumbers.has(item.number)).length
-}
-
-function getSortedMonths() {
-  return [...state.monthlyCosts].sort((a, b) => a.month.localeCompare(b.month))
-}
-
-function getProjectMonthlyAmount(number, month) {
-  const target = state.monthlyCosts.find(item => item.month === month)
-  return Number(target?.costsByNumber?.[number] || 0)
-}
-
-function getActiveLaborTotal(number) {
-  return getSortedMonths().reduce((sum, item) => sum + Number(item.costsByNumber?.[number] || 0), 0)
-}
-
-function isUpdatedInLastImport(number) {
-  return state.lastMonthlyUpdatedNumbers.includes(number)
+function getLaborTotal(number) {
+  const monthly = state.monthlyCosts.reduce((sum, item) => sum + Number(item.costsByNumber?.[number] || 0), 0)
+  const fixed = Number(state.completedCostsByNumber[number] || 0)
+  return monthly + fixed
 }
 
 function getSummary() {
-  const completed = getVisibleCompletedCosts()
-  const activeTotal = state.projects.reduce((sum, project) => sum + getActiveLaborTotal(project.number), 0)
-  const completedTotal = completed.reduce((sum, item) => sum + item.laborCost, 0)
+  const all = getAllBusinessNumbers()
+  const total = all.reduce((sum, number) => sum + getLaborTotal(number), 0)
   return [
-    ['進行中件数', state.projects.length],
-    ['完了済み件数', completed.length],
-    ['進行中労務費', `${formatMoney(activeTotal)}円`],
-    ['完了済み労務費', `${formatMoney(completedTotal)}円`],
-    ['全体労務費', `${formatMoney(activeTotal + completedTotal)}円`, 'summary-total'],
+    ['業務件数', all.length],
+    ['合計労務費', `${formatMoney(total)}円`, 'summary-total'],
   ]
 }
 
-function getFilteredActiveProjects() {
+function getFilteredBusinesses() {
   const q = state.search.trim().toLowerCase()
-  return [...state.projects]
-    .filter(project => {
-      const name = getDisplayName(project).toLowerCase()
-      return !q || project.number.toLowerCase().includes(q) || name.includes(q)
-    })
-    .sort((a, b) => a.number.localeCompare(b.number, 'ja'))
-}
-
-function getFilteredCompletedCosts() {
-  const q = state.search.trim().toLowerCase()
-  return getVisibleCompletedCosts()
-    .filter(item => {
-      const name = getDisplayName(item).toLowerCase()
-      return !q || item.number.toLowerCase().includes(q) || name.includes(q)
-    })
-    .sort((a, b) => a.number.localeCompare(b.number, 'ja'))
+  return getAllBusinessNumbers().filter(number => {
+    const name = getDisplayName(number).toLowerCase()
+    return !q || number.toLowerCase().includes(q) || name.includes(q)
+  })
 }
 
 function buildPayload() {
   return {
-    projects: state.projects,
     monthlyCosts: state.monthlyCosts,
-    completedCosts: state.completedCosts,
+    completedCostsByNumber: state.completedCostsByNumber,
     lastImportedMonth: state.lastImportedMonth,
-    lastMonthlyUpdatedNumbers: state.lastMonthlyUpdatedNumbers,
     updatedAt: new Date().toISOString(),
   }
 }
 
 function sanitizeData(data) {
-  const projects = Array.isArray(data.projects) ? data.projects : []
   const monthlyCosts = Array.isArray(data.monthlyCosts) ? data.monthlyCosts : []
-  const completedCosts = Array.isArray(data.completedCosts) ? data.completedCosts : []
+  const raw = (data.completedCostsByNumber && typeof data.completedCostsByNumber === 'object' && !Array.isArray(data.completedCostsByNumber))
+    ? data.completedCostsByNumber : {}
   return {
-    projects: projects
-      .map(project => ({
-        number: normalizeNumber(project.number),
-        name: String(project.name || '').trim(),
-      }))
-      .filter(project => project.number),
     monthlyCosts: monthlyCosts
       .map(item => ({ month: String(item.month || ''), costsByNumber: item.costsByNumber || {} }))
       .filter(item => /^\d{4}-\d{2}$/.test(item.month)),
-    completedCosts: completedCosts
-      .map(item => ({
-        number: normalizeNumber(item.number),
-        name: String(item.name || '').trim(),
-        laborCost: parseAmount(item.laborCost ?? item.LaborCost),
-      }))
-      .filter(item => item.number),
+    completedCostsByNumber: Object.fromEntries(
+      Object.entries(raw)
+        .map(([k, v]) => [normalizeNumber(k), Number(v) || 0])
+        .filter(([k, v]) => k && v)
+    ),
     lastImportedMonth: /^\d{4}-\d{2}$/.test(String(data.lastImportedMonth || '')) ? data.lastImportedMonth : null,
-    lastMonthlyUpdatedNumbers: Array.isArray(data.lastMonthlyUpdatedNumbers)
-      ? data.lastMonthlyUpdatedNumbers.map(normalizeNumber).filter(Boolean)
-      : [],
     updatedAt: data.updatedAt || null,
   }
 }
@@ -308,11 +249,9 @@ function loadLocalData() {
 }
 
 function applyData(data) {
-  state.projects = data.projects
   state.monthlyCosts = data.monthlyCosts
-  state.completedCosts = data.completedCosts
+  state.completedCostsByNumber = data.completedCostsByNumber
   state.lastImportedMonth = data.lastImportedMonth
-  state.lastMonthlyUpdatedNumbers = data.lastMonthlyUpdatedNumbers
 }
 
 function saveLocalData() {
@@ -349,7 +288,7 @@ async function loadData() {
     const response = await fetch(`${API_URL}?${Date.now()}`)
     if (!response.ok) throw new Error('remote unavailable')
     const data = sanitizeData(await response.json())
-    const localData = !data.projects.length && !data.monthlyCosts.length && !data.completedCosts.length ? loadLocalData() : null
+    const localData = !data.monthlyCosts.length && !Object.keys(data.completedCostsByNumber).length ? loadLocalData() : null
     applyData(localData || data)
     state.syncText = localData
       ? 'ローカルデータ'
@@ -393,41 +332,6 @@ async function saveData() {
   }
 }
 
-async function importProjects(event) {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
-  try {
-    const rows = parseCsv(await readFile(file, ['number']))
-    const headerIndex = rows.findIndex(row => row.map(normalizeHeader).includes('number'))
-    if (headerIndex < 0) throw new Error('number列が見つかりません')
-    const header = rows[headerIndex]
-    const numberIndex = findColumn(header, ['number'])
-    const nameIndex = findColumn(header, ['name'])
-    if (numberIndex < 0) throw new Error('number列が必要です')
-    const seen = new Set()
-    state.projects = rows.slice(headerIndex + 1)
-      .map(row => ({
-        number: normalizeNumber(row[numberIndex]),
-        name: nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '',
-      }))
-      .filter(project => project.number)
-      .filter(project => {
-        if (seen.has(project.number)) return false
-        seen.add(project.number)
-        return true
-      })
-    saveLocalData()
-    addLog(`進行中業務を${state.projects.length}件読み込みました`)
-    const duplicateCount = getDuplicateCompletedCount()
-    if (duplicateCount) addLog(`完了済みと重複する${duplicateCount}件は進行中を優先します`)
-    render()
-  } catch (error) {
-    addLog(`対象業務CSVの読込に失敗しました: ${error.message}`)
-    render()
-  }
-}
-
 async function importCompletedCosts(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -438,26 +342,17 @@ async function importCompletedCosts(event) {
     if (headerIndex < 0) throw new Error('number列が見つかりません')
     const header = rows[headerIndex]
     const numberIndex = findColumn(header, ['number'])
-    const nameIndex = findColumn(header, ['name'])
     const laborIndex = findColumn(header, ['LaborCost', 'labor cost'])
     if (numberIndex < 0 || laborIndex < 0) throw new Error('number,LaborCost列が必要です')
-    const seen = new Set()
-    state.completedCosts = rows.slice(headerIndex + 1)
-      .map(row => ({
-        number: normalizeNumber(row[numberIndex]),
-        name: nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '',
-        laborCost: parseAmount(row[laborIndex]),
-      }))
-      .filter(item => item.number)
-      .filter(item => {
-        if (seen.has(item.number)) return false
-        seen.add(item.number)
-        return true
-      })
+    state.completedCostsByNumber = {}
+    rows.slice(headerIndex + 1).forEach(row => {
+      const number = normalizeNumber(row[numberIndex])
+      if (!number) return
+      const cost = parseAmount(row[laborIndex])
+      if (cost) state.completedCostsByNumber[number] = cost
+    })
     saveLocalData()
-    addLog(`完了済み業務を${state.completedCosts.length}件読み込みました`)
-    const duplicateCount = getDuplicateCompletedCount()
-    if (duplicateCount) addLog(`進行中と重複する${duplicateCount}件は完了済み一覧から除外します`)
+    addLog(`完了済み固定費を${Object.keys(state.completedCostsByNumber).length}件読み込みました`)
     render()
   } catch (error) {
     addLog(`完了済みCSVの読込に失敗しました: ${error.message}`)
@@ -470,7 +365,6 @@ async function importMonthly(event) {
   event.target.value = ''
   if (!files.length) return
   let latestImported = null
-  let latestUpdatedNumbers = []
   for (const file of files) {
     try {
       const month = parseMonthFromName(file.name)
@@ -484,12 +378,12 @@ async function importMonthly(event) {
       const header = rows[headerIndex].map(cell => cell.trim())
       const numberIndex = header.indexOf('工番')
       const totalIndex = header.indexOf('建コン合計')
-      const targetNumbers = new Set(state.projects.map(project => project.number))
       const costsByNumber = {}
       rows.slice(headerIndex + 1).forEach(row => {
         const number = normalizeNumber(row[numberIndex])
-        if (!number || !targetNumbers.has(number)) return
-        costsByNumber[number] = parseAmount(row[totalIndex])
+        if (!number) return
+        const amount = parseAmount(row[totalIndex])
+        if (amount) costsByNumber[number] = amount
       })
       const item = { month, costsByNumber }
       const existingIndex = state.monthlyCosts.findIndex(existing => existing.month === month)
@@ -497,17 +391,13 @@ async function importMonthly(event) {
       else state.monthlyCosts.push(item)
       state.monthlyCosts.sort((a, b) => a.month.localeCompare(b.month))
       latestImported = month
-      latestUpdatedNumbers = Object.entries(costsByNumber)
-        .filter(([, amount]) => Number(amount) > 0)
-        .map(([number]) => number)
-      addLog(`${monthLabel(month)}を読み込みました（追加あり ${latestUpdatedNumbers.length}件 / 対象 ${Object.keys(costsByNumber).length}件）`)
+      addLog(`${monthLabel(month)}を読み込みました（${Object.keys(costsByNumber).length}件）`)
     } catch (error) {
       addLog(`${file.name}: ${error.message}`)
     }
   }
   if (latestImported) {
     state.lastImportedMonth = latestImported
-    state.lastMonthlyUpdatedNumbers = latestUpdatedNumbers
   }
   saveLocalData()
   render()
@@ -531,30 +421,22 @@ function downloadTextFile(filename, text, type = 'text/csv;charset=utf-8') {
 }
 
 function exportUnifiedCsv() {
-  const activeRows = state.projects.map(project => [
-    project.number,
-    getDisplayName(project),
-    'active',
-    getActiveLaborTotal(project.number),
-  ])
-  const completedRows = getVisibleCompletedCosts().map(item => [
-    item.number,
-    getDisplayName(item),
-    'completed',
-    item.laborCost,
-  ])
-  const rows = [['number', 'name', 'status', 'laborCost'], ...activeRows, ...completedRows]
+  const numbers = getAllBusinessNumbers()
+  const rows = [['number', 'name', 'laborCost'], ...numbers.map(number => [
+    number,
+    getDisplayName(number),
+    getLaborTotal(number),
+  ])]
   const csv = '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  downloadTextFile(`labor-cost-source-${date}.csv`, csv)
-  addLog(`統合CSVを${activeRows.length + completedRows.length}件出力しました`)
+  downloadTextFile(`labor-cost-${date}.csv`, csv)
+  addLog(`CSVを${numbers.length}件出力しました`)
   render()
 }
 
 function render() {
   const summary = getSummary()
-  const rows = state.view === 'active' ? getFilteredActiveProjects() : getFilteredCompletedCosts()
-  const duplicateCount = getDuplicateCompletedCount()
+  const businesses = getFilteredBusinesses()
   document.getElementById('app').innerHTML = `
     <header class="app-header">
       <div class="header-inner">
@@ -580,26 +462,21 @@ function render() {
       <section class="workspace">
         <div class="toolbar">
           <div class="toolbar-left">
-            <div class="tabs">
-              ${tabButton('active', '進行中業務')}
-              ${tabButton('completed', '完了済み業務')}
-            </div>
             <div class="search-box">
               <input id="search-input" class="search-input" type="text" placeholder="業務番号・業務名で検索" value="${escapeAttr(state.search)}" />
               ${state.search ? '<button id="search-clear" class="search-clear">×</button>' : ''}
             </div>
           </div>
           <div class="toolbar-actions">
-            <label class="btn btn-secondary file-label">対象業務CSV<input id="projects-input" type="file" accept=".csv" /></label>
             <label class="btn btn-secondary file-label">月次CSV<input id="monthly-input" type="file" accept=".csv" multiple /></label>
             <label class="btn btn-secondary file-label">完了済みCSV<input id="completed-input" type="file" accept=".csv" /></label>
-            <button id="export-btn" class="btn btn-secondary" ${state.projects.length || getVisibleCompletedCosts().length ? '' : 'disabled'}>統合CSV出力</button>
+            <button id="export-btn" class="btn btn-secondary" ${getAllBusinessNumbers().length ? '' : 'disabled'}>CSV出力</button>
             <button id="save-btn" class="btn btn-primary" ${state.saving ? 'disabled' : ''}>${state.saving ? '保存中' : '保存'}</button>
           </div>
         </div>
-        ${renderNotice(duplicateCount)}
-        <div class="result-line">${rows.length}件 表示中</div>
-        ${state.view === 'active' ? renderActiveTable(rows) : renderCompletedTable(rows)}
+        ${renderNotice()}
+        <div class="result-line">${businesses.length}件 表示中</div>
+        ${renderTable(businesses)}
         ${state.log.length ? `<div class="import-log">${state.log.map(escapeHtml).join('<br>')}</div>` : ''}
       </section>
     </main>
@@ -607,18 +484,14 @@ function render() {
   bindEvents()
 }
 
-function renderNotice(duplicateCount) {
+function renderNotice() {
   if (!state.loadingNames && Object.keys(state.projectNames).length === 0) {
     return '<div class="notice warn">業務名を取得できていません。業務番号を仮の表示名として表示しています。</div>'
   }
-  if (state.view === 'active') {
-    if (!state.projects.length) return '<div class="notice">対象業務CSVを読み込むと、進行中業務の台帳が表示されます。</div>'
-    if (!state.monthlyCosts.length) return '<div class="notice">月次CSVを読み込むと、累計労務費と月次追加の有無が表示されます。</div>'
-    return `<div class="notice">最後に取り込んだ月次CSV: ${monthLabel(state.lastImportedMonth)}。月次追加は次の取込までこの結果を表示します。</div>`
+  if (!state.monthlyCosts.length && !Object.keys(state.completedCostsByNumber).length) {
+    return '<div class="notice">月次CSVまたは完了済みCSVを読み込むと、累計労務費が表示されます。</div>'
   }
-  if (!state.completedCosts.length) return '<div class="notice">完了済みCSVは number,LaborCost の2列で読み込めます。業務名は元サイトから自動補完します。</div>'
-  if (duplicateCount) return `<div class="notice warn">進行中と重複する完了済み業務 ${duplicateCount}件は、進行中を優先して除外しています。</div>`
-  return '<div class="notice">完了済み業務は固定労務費として管理し、月次追加の対象外です。</div>'
+  return ''
 }
 
 function getProjectNameStatusText() {
@@ -627,13 +500,9 @@ function getProjectNameStatusText() {
   return count ? `${count}件` : '未取得'
 }
 
-function tabButton(value, label) {
-  return `<button class="tab ${state.view === value ? 'active' : ''}" data-view="${value}">${label}</button>`
-}
-
-function renderActiveTable(projects) {
+function renderTable(businesses) {
   if (state.loading) return '<div class="empty-state">データを読み込んでいます...</div>'
-  if (!projects.length) return '<div class="empty-state">表示できる進行中業務がありません</div>'
+  if (!businesses.length) return '<div class="empty-state">表示できる業務がありません</div>'
   return `
     <div class="table-wrap">
       <table class="ledger-table">
@@ -641,58 +510,15 @@ function renderActiveTable(projects) {
           <tr>
             <th>業務番号</th>
             <th>業務名</th>
-            <th class="num">累計労務費</th>
-            <th>月次追加</th>
-            <th>最終取込月</th>
+            <th class="num">合計労務費</th>
           </tr>
         </thead>
         <tbody>
-          ${projects.map(project => {
-            const updated = state.lastImportedMonth ? isUpdatedInLastImport(project.number) : null
-            const latestAmount = state.lastImportedMonth ? getProjectMonthlyAmount(project.number, state.lastImportedMonth) : 0
-            return `
-              <tr>
-                <td><strong>${escapeHtml(project.number)}</strong></td>
-                <td>${escapeHtml(getDisplayName(project))}</td>
-                <td class="num">${formatMoney(getActiveLaborTotal(project.number))}円</td>
-                <td>${renderMonthlyStatus(updated, latestAmount)}</td>
-                <td>${monthLabel(state.lastImportedMonth)}</td>
-              </tr>
-            `
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `
-}
-
-function renderMonthlyStatus(updated, amount) {
-  if (updated === null) return '<span class="status-pill status-none">未取込</span>'
-  if (updated) return `<span class="status-pill status-added">追加あり ${formatMoney(amount)}円</span>`
-  return '<span class="status-pill status-none">追加なし</span>'
-}
-
-function renderCompletedTable(items) {
-  if (state.loading) return '<div class="empty-state">データを読み込んでいます...</div>'
-  if (!items.length) return '<div class="empty-state">表示できる完了済み業務がありません</div>'
-  return `
-    <div class="table-wrap">
-      <table class="ledger-table">
-        <thead>
-          <tr>
-            <th>業務番号</th>
-            <th>業務名</th>
-            <th class="num">固定労務費</th>
-            <th>状態</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items.map(item => `
+          ${businesses.map(number => `
             <tr>
-              <td><strong>${escapeHtml(item.number)}</strong></td>
-              <td>${escapeHtml(getDisplayName(item))}</td>
-              <td class="num">${formatMoney(item.laborCost)}円</td>
-              <td><span class="status-pill status-completed">完了済み・固定</span></td>
+              <td><strong>${escapeHtml(number)}</strong></td>
+              <td>${escapeHtml(getDisplayName(number))}</td>
+              <td class="num">${formatMoney(getLaborTotal(number))}円</td>
             </tr>
           `).join('')}
         </tbody>
@@ -702,12 +528,6 @@ function renderCompletedTable(items) {
 }
 
 function bindEvents() {
-  document.querySelectorAll('[data-view]').forEach(button => {
-    button.addEventListener('click', () => {
-      state.view = button.dataset.view
-      render()
-    })
-  })
   document.getElementById('search-input')?.addEventListener('input', event => {
     state.search = event.target.value
     render()
@@ -716,7 +536,6 @@ function bindEvents() {
     state.search = ''
     render()
   })
-  document.getElementById('projects-input')?.addEventListener('change', importProjects)
   document.getElementById('monthly-input')?.addEventListener('change', importMonthly)
   document.getElementById('completed-input')?.addEventListener('change', importCompletedCosts)
   document.getElementById('export-btn')?.addEventListener('click', exportUnifiedCsv)

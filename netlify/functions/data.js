@@ -28,11 +28,9 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'GET') {
       const rows = await sql`SELECT value FROM app_data WHERE key = ${KEY}`
       const empty = {
-        projects: [],
         monthlyCosts: [],
-        completedCosts: [],
+        completedCostsByNumber: {},
         lastImportedMonth: null,
-        lastMonthlyUpdatedNumbers: [],
         updatedAt: null,
       }
       return {
@@ -45,13 +43,10 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'POST') {
       const data = JSON.parse(event.body || '{}')
       const payload = {
-        projects: Array.isArray(data.projects) ? data.projects : [],
         monthlyCosts: Array.isArray(data.monthlyCosts) ? data.monthlyCosts : [],
-        completedCosts: Array.isArray(data.completedCosts) ? data.completedCosts : [],
+        completedCostsByNumber: (data.completedCostsByNumber && typeof data.completedCostsByNumber === 'object' && !Array.isArray(data.completedCostsByNumber))
+          ? data.completedCostsByNumber : {},
         lastImportedMonth: data.lastImportedMonth || null,
-        lastMonthlyUpdatedNumbers: Array.isArray(data.lastMonthlyUpdatedNumbers)
-          ? data.lastMonthlyUpdatedNumbers
-          : [],
         updatedAt: new Date().toISOString(),
       }
 
